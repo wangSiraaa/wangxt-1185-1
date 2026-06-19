@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: water_plant_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: water_plant
+    ports:
+      - "21485:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - water_plant_network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: water_plant_backend
+    environment:
+      PORT: 19485
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: water_plant
+      JWT_SECRET: water_plant_jwt_secret_2024
+      TOKEN_EXPIRES_IN: 24h
+    ports:
+      - "19485:19485"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - water_plant_network
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: water_plant_frontend
+    ports:
+      - "20485:80"
+    depends_on:
+      - backend
+    networks:
+      - water_plant_network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+
+networks:
+  water_plant_network:
+    driver: bridge
