@@ -41,6 +41,20 @@
             <el-form-item label="消毒剂标准投加量(mg/L)">
               <el-input-number v-model="form.disinfectant_standard" :min="0" :precision="2" :step="0.1" style="width: 100%" />
             </el-form-item>
+
+            <h3 style="margin: 24px 0 16px; color: #303133">偏差检测配置</h3>
+            <el-form-item label="连续偏离小时数">
+              <el-input-number v-model="form.consecutive_deviation_hours" :min="1" :max="24" :precision="0" :step="1" style="width: 100%" />
+              <div class="form-tip">连续N小时指标偏离阈值，系统自动生成偏差</div>
+            </el-form-item>
+            <el-form-item label="复发回溯天数">
+              <el-input-number v-model="form.recurrence_lookback_days" :min="1" :max="90" :precision="0" :step="1" style="width: 100%" />
+              <div class="form-tip">多少天内再次出现同类偏差自动标记为复发</div>
+            </el-form-item>
+            <el-form-item label="调整对比小时数">
+              <el-input-number v-model="form.adjustment_compare_hours" :min="1" :max="48" :precision="0" :step="1" style="width: 100%" />
+              <div class="form-tip">工艺调整前后各取多少小时数据进行对比</div>
+            </el-form-item>
           </el-form>
 
           <el-alert type="info" :closable="false" style="margin-top: 20px">
@@ -48,6 +62,9 @@
             <p>1. 在线余氯低于"余氯下限"时，系统将自动生成偏差记录</p>
             <p>2. 标准投加量用于数据对比和系统提示参考</p>
             <p>3. 水质标准用于化验结果的合格判定</p>
+            <p>4. 连续偏离小时数：连续N小时指标偏离阈值自动生成偏差</p>
+            <p>5. 复发回溯天数：多少天内再次出现同类偏差自动标记为复发</p>
+            <p>6. 调整对比小时数：工艺调整前后各取多少小时数据进行对比</p>
           </el-alert>
         </el-col>
       </el-row>
@@ -97,7 +114,10 @@ const form = reactive({
   disinfectant_standard: 2.0,
   turbidity_max: 1.0,
   ph_min: 6.5,
-  ph_max: 8.5
+  ph_max: 8.5,
+  consecutive_deviation_hours: 3,
+  recurrence_lookback_days: 7,
+  adjustment_compare_hours: 6
 })
 
 const roleTagMap: Record<string, string> = {
@@ -141,7 +161,10 @@ const handleSave = async () => {
       { config_key: 'disinfectant_standard', config_value: form.disinfectant_standard.toString() },
       { config_key: 'turbidity_max', config_value: form.turbidity_max.toString() },
       { config_key: 'ph_min', config_value: form.ph_min.toString() },
-      { config_key: 'ph_max', config_value: form.ph_max.toString() }
+      { config_key: 'ph_max', config_value: form.ph_max.toString() },
+      { config_key: 'consecutive_deviation_hours', config_value: form.consecutive_deviation_hours.toString() },
+      { config_key: 'recurrence_lookback_days', config_value: form.recurrence_lookback_days.toString() },
+      { config_key: 'adjustment_compare_hours', config_value: form.adjustment_compare_hours.toString() }
     ]
     await batchUpdateConfigs(configs)
     ElMessage.success('配置保存成功')
@@ -172,5 +195,11 @@ h3 {
 
 :deep(.el-alert__description) {
   line-height: 1.8;
+}
+
+.form-tip {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 4px;
 }
 </style>

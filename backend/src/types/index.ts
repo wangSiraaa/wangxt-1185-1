@@ -39,16 +39,26 @@ export interface WaterQualityRecord {
 
 export type DeviationStatus = 'pending' | 'analyst_submitted' | 'confirmed' | 'closed'
 
-export type DeviationType = 'low_chlorine' | 'manual'
+export type DeviationType = 'low_chlorine' | 'high_turbidity' | 'manual'
+
+export type DeviationMetric = 'residual_chlorine' | 'turbidity' | 'manual'
 
 export interface DeviationRecord {
   id: number
   dosage_record_id: number
   type: DeviationType
+  deviation_metric: DeviationMetric
   description: string
   status: DeviationStatus
   actual_dosage: number
   suggested_dosage: number
+  actual_value: number
+  threshold_value: number
+  consecutive_hours: number
+  affect_start_time: Date | null
+  affect_end_time: Date | null
+  parent_deviation_id: number | null
+  is_recurrence: boolean
   analyst_opinion: string
   supervisor_opinion: string
   analyst_id: number | null
@@ -59,6 +69,18 @@ export interface DeviationRecord {
   closed_at: Date | null
   created_at: Date
   updated_at: Date
+}
+
+export interface DeviationDetail extends DeviationRecord {
+  record_time?: Date
+  hour?: number
+  disinfectant_dosage?: number
+  online_residual_chlorine?: number
+  analyst_name?: string
+  supervisor_name?: string
+  has_quality_record?: boolean
+  parent_deviation?: DeviationRecord | null
+  recurrence_deviations?: DeviationRecord[]
 }
 
 export interface ProcessAdjustment {

@@ -2,6 +2,10 @@ import { Response } from 'express'
 import pool from '../utils/db'
 import { AuthRequest } from '../middleware/auth'
 import { successResponse, errorResponse } from '../utils/response'
+import {
+  checkConsecutiveDeviation,
+  createDeviationFromConsecutive
+} from '../utils/deviationDetector'
 
 export const getWaterQualityRecords = async (req: AuthRequest, res: Response) => {
   const { date, page = 1, pageSize = 24 } = req.query
@@ -85,6 +89,18 @@ export const createWaterQualityRecord = async (req: AuthRequest, res: Response) 
     await pool.query(
       `UPDATE deviation_records SET status = 'analyst_submitted' WHERE id = $1`,
       [dev.id]
+    )
+  }
+
+  const turbidityResult = await checkConsecutiveDeviation(dosage_record_id, 'turbidity')
+  if (turbidityResult.isConsecutive && turbidityResult.startRecordId && turbidityResult.startTime && turbidityResult.endTime) {
+    await createDeviationFromConsecutive(
+      turbidityResult.startRecordId,
+      'turbidity',
+      turbidityResult.consecutiveCount,
+      turbidityResult.startTime,
+      turbidityResult.endTime,
+      turbidity
     )
   }
 

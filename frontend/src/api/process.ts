@@ -1,5 +1,5 @@
 import request from './request'
-import type { ProcessAdjustment, SystemConfig, ApiResponse } from '@/types'
+import type { ProcessAdjustment, SystemConfig, ApiResponse, AdjustmentCompareResponse } from '@/types'
 
 export interface ProcessQueryParams {
   page?: number
@@ -12,6 +12,10 @@ export const getProcessAdjustments = (params: ProcessQueryParams = {}) => {
 
 export const createProcessAdjustment = (data: Partial<ProcessAdjustment>) => {
   return request.post<ProcessAdjustment>('/process-adjustment', data)
+}
+
+export const getAdjustmentCompare = (adjustmentId: number) => {
+  return request.get<ApiResponse<AdjustmentCompareResponse>>(`/process-adjustment/${adjustmentId}/compare`)
 }
 
 export const getStatistics = (params?: { start_date?: string; end_date?: string }) => {

@@ -23,6 +23,7 @@ router.post('/water-quality', authMiddleware(['analyst', 'supervisor']), waterQu
 router.get('/water-quality/pending', authMiddleware(['analyst', 'supervisor']), waterQualityController.getPendingForAnalyst)
 
 router.get('/deviation', authMiddleware(), deviationController.getDeviationRecords)
+router.get('/deviation/:id', authMiddleware(), deviationController.getDeviationDetail)
 router.post('/deviation/manual', authMiddleware(['analyst', 'supervisor']), deviationController.createManualDeviation)
 router.put('/deviation/:id/analyst', authMiddleware(['analyst', 'supervisor']), deviationController.submitAnalystOpinion)
 router.put('/deviation/:id/confirm', authMiddleware(['supervisor']), deviationController.confirmBySupervisor)
@@ -30,6 +31,7 @@ router.put('/deviation/:id/close', authMiddleware(['supervisor']), deviationCont
 
 router.get('/process-adjustment', authMiddleware(), processController.getProcessAdjustments)
 router.post('/process-adjustment', authMiddleware(['supervisor']), processController.createProcessAdjustment)
+router.get('/process-adjustment/:adjustment_id/compare', authMiddleware(), processController.getAdjustmentCompare)
 router.get('/statistics', authMiddleware(), processController.getStatistics)
 
 router.get('/config', authMiddleware(), configController.getSystemConfigs)

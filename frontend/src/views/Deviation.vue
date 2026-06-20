@@ -5,6 +5,9 @@
         <div class="card-header">
           <span>偏差管理</span>
           <div class="header-actions">
+            <el-select v-model="typeFilter" placeholder="类型筛选" clearable style="width: 140px" @change="loadData">
+              <el-option v-for="item in typeOptions" :key="item.value" :label="item.label" :value="item.value" />
+            </el-select>
             <el-select v-model="statusFilter" placeholder="状态筛选" clearable style="width: 160px" @change="loadData">
               <el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" />
             </el-select>
@@ -17,36 +20,54 @@
       </template>
 
       <el-table :data="tableData" v-loading="loading" border stripe>
-        <el-table-column prop="id" label="编号" width="80" align="center" />
+        <el-table-column prop="id" label="编号" width="70" align="center" />
         <el-table-column prop="type" label="类型" width="100" align="center">
           <template #default="{ row }">
-            <el-tag :type="row.type === 'low_chlorine' ? 'danger' : 'warning'" size="small">
+            <el-tag :type="getTypeTagType(row.type)" size="small">
               {{ typeMap[row.type] }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="关联时段" width="140">
+        <el-table-column label="影响时段" width="220">
           <template #default="{ row }">
-            {{ row.record_time }} {{ row.hour?.toString().padStart(2, '0') }}:00
+            <template v-if="row.affect_start_time && row.affect_end_time">
+              <div class="time-range">
+                <span class="time-start">{{ formatDateTime(row.affect_start_time) }}</span>
+                <span class="time-arrow">→</span>
+                <span class="time-end">{{ formatDateTime(row.affect_end_time) }}</span>
+              </div>
+              <div class="consecutive-hours" v-if="row.consecutive_hours && row.consecutive_hours > 1">
+                <el-tag size="small" type="warning">连续 {{ row.consecutive_hours }} 小时</el-tag>
+              </div>
+            </template>
+            <span v-else>{{ row.record_time }} {{ row.hour?.toString().padStart(2, '0') }}:00</span>
           </template>
         </el-table-column>
-        <el-table-column prop="description" label="偏差描述" min-width="180" show-overflow-tooltip />
-        <el-table-column prop="actual_dosage" label="实际投加量" width="120" align="center" />
-        <el-table-column prop="suggested_dosage" label="建议投加量" width="120" align="center" />
+        <el-table-column label="指标数值" width="130" align="center">
+          <template #default="{ row }">
+            <template v-if="row.actual_value !== undefined && row.actual_value !== null">
+              <span :class="getValueClass(row)">{{ row.actual_value }}</span>
+              <div class="threshold-text">阈值: {{ row.threshold_value }}</div>
+            </template>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="复发" width="70" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.is_recurrence" type="danger" size="small">复发</el-tag>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="actual_dosage" label="实际投加量" width="110" align="center" />
         <el-table-column prop="status" label="状态" width="120" align="center">
           <template #default="{ row }">
             <el-tag :type="statusColorMap[row.status]" size="small">{{ statusMap[row.status] }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="化验结果" width="100" align="center">
+        <el-table-column label="化验结果" width="90" align="center">
           <template #default="{ row }">
             <el-tag v-if="row.has_quality_record" type="success" size="small">已回传</el-tag>
             <el-tag v-else type="danger" size="small">未回传</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="generated_at" label="生成时间" width="160">
-          <template #default="{ row }">
-            {{ formatDateTime(row.generated_at) }}
           </template>
         </el-table-column>
         <el-table-column label="操作" width="180" align="center" fixed="right">
@@ -90,43 +111,107 @@
       />
     </el-card>
 
-    <el-dialog v-model="showViewDialog" title="偏差详情" width="600px">
-      <el-descriptions :column="2" border v-if="currentRecord">
-        <el-descriptions-item label="偏差编号">{{ currentRecord.id }}</el-descriptions-item>
-        <el-descriptions-item label="偏差类型">
-          <el-tag :type="currentRecord.type === 'low_chlorine' ? 'danger' : 'warning'">
-            {{ typeMap[currentRecord.type] }}
-          </el-tag>
-        </el-descriptions-item>
-        <el-descriptions-item label="关联时段">
-          {{ currentRecord.record_time }} {{ currentRecord.hour?.toString().padStart(2, '0') }}:00
-        </el-descriptions-item>
-        <el-descriptions-item label="当前状态">
-          <el-tag :type="statusColorMap[currentRecord.status]">{{ statusMap[currentRecord.status] }}</el-tag>
-        </el-descriptions-item>
-        <el-descriptions-item label="实际投加量">{{ currentRecord.actual_dosage }} mg/L</el-descriptions-item>
-        <el-descriptions-item label="建议投加量">{{ currentRecord.suggested_dosage || '-' }} mg/L</el-descriptions-item>
-        <el-descriptions-item label="在线余氯">{{ currentRecord.online_residual_chlorine }} mg/L</el-descriptions-item>
-        <el-descriptions-item label="化验结果">
-          <el-tag v-if="currentRecord.has_quality_record" type="success">已回传</el-tag>
-          <el-tag v-else type="danger">未回传</el-tag>
-        </el-descriptions-item>
-        <el-descriptions-item label="偏差描述" :span="2">{{ currentRecord.description }}</el-descriptions-item>
-        <el-descriptions-item label="化验员意见" :span="2">
-          {{ currentRecord.analyst_opinion || '暂无' }}
-          <div v-if="currentRecord.analyst_name" class="meta">
-            <span>操作人：{{ currentRecord.analyst_name }}</span>
-            <span style="margin-left: 20px">时间：{{ formatDateTime(currentRecord.analyst_submitted_at) }}</span>
-          </div>
-        </el-descriptions-item>
-        <el-descriptions-item label="主管意见" :span="2">
-          {{ currentRecord.supervisor_opinion || '暂无' }}
-          <div v-if="currentRecord.supervisor_name" class="meta">
-            <span>操作人：{{ currentRecord.supervisor_name }}</span>
-            <span style="margin-left: 20px">时间：{{ formatDateTime(currentRecord.supervisor_confirmed_at) }}</span>
-          </div>
-        </el-descriptions-item>
-      </el-descriptions>
+    <el-dialog v-model="showViewDialog" title="偏差详情" width="720px">
+      <div v-if="currentDetail" class="deviation-detail">
+        <el-descriptions :column="2" border>
+          <el-descriptions-item label="偏差编号">{{ currentDetail.id }}</el-descriptions-item>
+          <el-descriptions-item label="偏差类型">
+            <el-tag :type="getTypeTagType(currentDetail.type)">
+              {{ typeMap[currentDetail.type] }}
+            </el-tag>
+            <el-tag v-if="currentDetail.is_recurrence" type="danger" size="small" style="margin-left: 8px">
+              复发偏差
+            </el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="当前状态">
+            <el-tag :type="statusColorMap[currentDetail.status]">{{ statusMap[currentDetail.status] }}</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="连续偏离">
+            <template v-if="currentDetail.consecutive_hours && currentDetail.consecutive_hours > 1">
+              {{ currentDetail.consecutive_hours }} 小时
+            </template>
+            <span v-else>-</span>
+          </el-descriptions-item>
+          <el-descriptions-item label="影响时段" :span="2">
+            <template v-if="currentDetail.affect_start_time && currentDetail.affect_end_time">
+              <span class="time-range-text">
+                {{ formatFullDateTime(currentDetail.affect_start_time) }}
+                →
+                {{ formatFullDateTime(currentDetail.affect_end_time) }}
+              </span>
+            </template>
+            <span v-else>{{ currentDetail.record_time }} {{ currentDetail.hour?.toString().padStart(2, '0') }}:00</span>
+          </el-descriptions-item>
+          <el-descriptions-item label="指标实际值">
+            <span :class="getValueClass(currentDetail)">{{ currentDetail.actual_value ?? '-' }}</span>
+          </el-descriptions-item>
+          <el-descriptions-item label="阈值">
+            {{ currentDetail.threshold_value ?? '-' }}
+          </el-descriptions-item>
+          <el-descriptions-item label="实际投加量">{{ currentDetail.actual_dosage }} mg/L</el-descriptions-item>
+          <el-descriptions-item label="建议投加量">{{ currentDetail.suggested_dosage || '-' }} mg/L</el-descriptions-item>
+          <el-descriptions-item label="化验结果">
+            <el-tag v-if="currentDetail.has_quality_record" type="success">已回传</el-tag>
+            <el-tag v-else type="danger">未回传</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="生成时间">{{ formatFullDateTime(currentDetail.generated_at) }}</el-descriptions-item>
+          <el-descriptions-item label="偏差描述" :span="2">{{ currentDetail.description }}</el-descriptions-item>
+        </el-descriptions>
+
+        <div v-if="currentDetail.parent_deviation" class="detail-section">
+          <h4 class="section-title">关联的原始偏差</h4>
+          <el-descriptions :column="2" border size="small">
+            <el-descriptions-item label="偏差编号">#{{ currentDetail.parent_deviation.id }}</el-descriptions-item>
+            <el-descriptions-item label="类型">
+              {{ typeMap[currentDetail.parent_deviation.type as keyof typeof typeMap] }}
+            </el-descriptions-item>
+            <el-descriptions-item label="状态">
+              {{ statusMap[currentDetail.parent_deviation.status as keyof typeof statusMap] }}
+            </el-descriptions-item>
+            <el-descriptions-item label="生成时间">
+              {{ formatFullDateTime(currentDetail.parent_deviation.generated_at) }}
+            </el-descriptions-item>
+          </el-descriptions>
+        </div>
+
+        <div v-if="currentDetail.recurrence_deviations && currentDetail.recurrence_deviations.length > 0" class="detail-section">
+          <h4 class="section-title">复发偏差记录 ({{ currentDetail.recurrence_deviations.length }} 次)</h4>
+          <el-table :data="currentDetail.recurrence_deviations" size="small" border stripe>
+            <el-table-column prop="id" label="编号" width="70" />
+            <el-table-column prop="type" label="类型" width="100">
+              <template #default="{ row }">
+                {{ typeMap[row.type as keyof typeof typeMap] }}
+              </template>
+            </el-table-column>
+            <el-table-column label="生成时间" width="160">
+              <template #default="{ row }">{{ formatFullDateTime(row.generated_at) }}</template>
+            </el-table-column>
+            <el-table-column prop="status" label="状态" width="110">
+              <template #default="{ row }">
+                {{ statusMap[row.status as keyof typeof statusMap] }}
+              </template>
+            </el-table-column>
+            <el-table-column prop="actual_value" label="实际值" width="100" />
+          </el-table>
+        </div>
+
+        <el-descriptions :column="2" border class="opinion-section">
+          <el-descriptions-item label="化验员意见" :span="2">
+            {{ currentDetail.analyst_opinion || '暂无' }}
+            <div v-if="currentDetail.analyst_name" class="meta">
+              <span>操作人：{{ currentDetail.analyst_name }}</span>
+              <span style="margin-left: 20px">时间：{{ formatFullDateTime(currentDetail.analyst_submitted_at) }}</span>
+            </div>
+          </el-descriptions-item>
+          <el-descriptions-item label="主管意见" :span="2">
+            {{ currentDetail.supervisor_opinion || '暂无' }}
+            <div v-if="currentDetail.supervisor_name" class="meta">
+              <span>操作人：{{ currentDetail.supervisor_name }}</span>
+              <span style="margin-left: 20px">时间：{{ formatFullDateTime(currentDetail.supervisor_confirmed_at) }}</span>
+            </div>
+          </el-descriptions-item>
+        </el-descriptions>
+      </div>
     </el-dialog>
 
     <el-dialog v-model="showAnalystDialog" title="提交化验员意见" width="500px" @close="resetAnalystForm">
@@ -203,19 +288,22 @@ import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import { useUserStore } from '@/store/user'
-import { getDeviationRecords, submitAnalystOpinion, confirmBySupervisor, closeDeviation, createManualDeviation } from '@/api/deviation'
+import { getDeviationRecords, getDeviationDetail, submitAnalystOpinion, confirmBySupervisor, closeDeviation, createManualDeviation } from '@/api/deviation'
 import { getDosageRecords } from '@/api/dosage'
-import { statusMap, typeMap, statusColorMap } from '@/types'
+import { statusMap, typeMap, statusColorMap, type DeviationRecord } from '@/types'
 import dayjs from 'dayjs'
-import type { DeviationRecord, DosageRecord } from '@/types'
+import type { DosageRecord } from '@/types'
 
 const userStore = useUserStore()
 const loading = ref(false)
+const detailLoading = ref(false)
 const submitting = ref(false)
 const statusFilter = ref('')
+const typeFilter = ref('')
 const tableData = ref<DeviationRecord[]>([])
 const dosageList = ref<DosageRecord[]>([])
 const currentRecord = ref<DeviationRecord | null>(null)
+const currentDetail = ref<DeviationRecord | null>(null)
 
 const showViewDialog = ref(false)
 const showAnalystDialog = ref(false)
@@ -226,8 +314,14 @@ const analystFormRef = ref<FormInstance>()
 const confirmFormRef = ref<FormInstance>()
 const manualFormRef = ref<FormInstance>()
 
+const typeOptions = [
+  { label: '余氯偏低', value: 'low_chlorine' },
+  { label: '浊度偏高', value: 'high_turbidity' },
+  { label: '人工录入', value: 'manual' }
+]
+
 const statusOptions = [
-  { label: '待处理', value: 'pending' },
+  { label: '待处理(挂起)', value: 'pending' },
   { label: '化验员已提交', value: 'analyst_submitted' },
   { label: '主管已确认', value: 'confirmed' },
   { label: '已关闭', value: 'closed' }
@@ -252,7 +346,8 @@ const confirmForm = reactive({
 const manualForm = reactive({
   dosage_record_id: undefined as number | undefined,
   description: '',
-  suggested_dosage: 2.0
+  suggested_dosage: 2.0,
+  deviation_metric: 'manual'
 })
 
 const analystRules: FormRules = {
@@ -268,13 +363,34 @@ const manualRules: FormRules = {
   description: [{ required: true, message: '请输入偏差描述', trigger: 'blur' }]
 }
 
+const getTypeTagType = (type: string) => {
+  const typeMap: Record<string, string> = {
+    low_chlorine: 'danger',
+    high_turbidity: 'warning',
+    manual: 'info'
+  }
+  return typeMap[type] || 'info'
+}
+
+const getValueClass = (row: any) => {
+  if (row.type === 'low_chlorine' || row.deviation_metric === 'residual_chlorine') {
+    return 'value-low'
+  }
+  if (row.type === 'high_turbidity' || row.deviation_metric === 'turbidity') {
+    return 'value-high'
+  }
+  return ''
+}
+
 const formatDateTime = (date?: string) => date ? dayjs(date).format('MM-DD HH:mm') : '-'
+const formatFullDateTime = (date?: string) => date ? dayjs(date).format('YYYY-MM-DD HH:mm') : '-'
 
 const loadData = async () => {
   loading.value = true
   try {
     const params: any = { page: pagination.page, pageSize: pagination.pageSize }
     if (statusFilter.value) params.status = statusFilter.value
+    if (typeFilter.value) params.type = typeFilter.value
     const res = await getDeviationRecords(params)
     tableData.value = res.data?.data || []
     pagination.total = res.data?.total || 0
@@ -291,9 +407,19 @@ const loadDosageList = async () => {
   } catch (error) {}
 }
 
-const handleView = (row: DeviationRecord) => {
+const handleView = async (row: DeviationRecord) => {
   currentRecord.value = row
-  showViewDialog.value = true
+  detailLoading.value = true
+  try {
+    const res = await getDeviationDetail(row.id)
+    currentDetail.value = res.data?.data || row
+    showViewDialog.value = true
+  } catch (error) {
+    currentDetail.value = row
+    showViewDialog.value = true
+  } finally {
+    detailLoading.value = false
+  }
 }
 
 const handleAnalyst = (row: DeviationRecord) => {
@@ -339,10 +465,11 @@ const resetManualForm = () => {
   manualForm.dosage_record_id = undefined
   manualForm.description = ''
   manualForm.suggested_dosage = 2.0
+  manualForm.deviation_metric = 'manual'
   manualFormRef.value?.resetFields()
 }
 
-const submitAnalystOpinion = async () => {
+const submitAnalystOpinionFn = async () => {
   if (!analystFormRef.value || !currentRecord.value) return
   await analystFormRef.value.validate(async (valid) => {
     if (valid) {
@@ -423,5 +550,36 @@ onMounted(() => {
   margin-top: 8px;
   font-size: 12px;
   color: #909399;
+}
+
+.value-low {
+  color: #f56c6c;
+  font-weight: bold;
+}
+
+.value-high {
+  color: #e6a23c;
+  font-weight: bold;
+}
+
+.time-range-text {
+  color: #606266;
+}
+
+.detail-section {
+  margin-top: 20px;
+}
+
+.section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #303133;
+  margin-bottom: 10px;
+  padding-left: 8px;
+  border-left: 3px solid #409eff;
+}
+
+.opinion-section {
+  margin-top: 20px;
 }
 </style>

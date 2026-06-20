@@ -3,6 +3,12 @@ import pool from '../utils/db'
 import { AuthRequest } from '../middleware/auth'
 import { successResponse, errorResponse } from '../utils/response'
 import { getMinResidualChlorine } from '../utils/config'
+import {
+  checkConsecutiveDeviation,
+  createDeviationFromConsecutive,
+  hasActiveDeviation
+} from '../utils/deviationDetector'
+import { DeviationMetric } from '../types'
 import dayjs from 'dayjs'
 
 export const getDosageRecords = async (req: AuthRequest, res: Response) => {
@@ -79,32 +85,17 @@ export const createDosageRecord = async (req: AuthRequest, res: Response) => {
 }
 
 const checkAndCreateDeviation = async (dosageRecordId: number, onlineResidualChlorine: number) => {
-  const minChlorine = await getMinResidualChlorine()
-  
-  if (onlineResidualChlorine < minChlorine) {
-    const existingDeviation = await pool.query(
-      'SELECT id FROM deviation_records WHERE dosage_record_id = $1 AND type = $2',
-      [dosageRecordId, 'low_chlorine']
+  const result = await checkConsecutiveDeviation(dosageRecordId, 'residual_chlorine')
+
+  if (result.isConsecutive && result.startRecordId && result.startTime && result.endTime) {
+    await createDeviationFromConsecutive(
+      result.startRecordId,
+      'residual_chlorine',
+      result.consecutiveCount,
+      result.startTime,
+      result.endTime,
+      onlineResidualChlorine
     )
-
-    if (existingDeviation.rows.length === 0) {
-      const dosageRecord = await pool.query(
-        'SELECT disinfectant_dosage FROM dosage_records WHERE id = $1',
-        [dosageRecordId]
-      )
-
-      await pool.query(
-        `INSERT INTO deviation_records 
-         (dosage_record_id, type, description, actual_dosage, status)
-         VALUES ($1, $2, $3, $4, 'pending')`,
-        [
-          dosageRecordId,
-          'low_chlorine',
-          `在线余氯${onlineResidualChlorine}mg/L低于下限${minChlorine}mg/L`,
-          dosageRecord.rows[0].disinfectant_dosage
-        ]
-      )
-    }
   }
 }
 

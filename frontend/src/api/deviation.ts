@@ -3,12 +3,17 @@ import type { DeviationRecord, ApiResponse } from '@/types'
 
 export interface DeviationQueryParams {
   status?: string
+  type?: string
   page?: number
   pageSize?: number
 }
 
 export const getDeviationRecords = (params: DeviationQueryParams = {}) => {
   return request.get<ApiResponse<DeviationRecord[]>>('/deviation', { params })
+}
+
+export const getDeviationDetail = (id: number) => {
+  return request.get<ApiResponse<DeviationRecord>>(`/deviation/${id}`)
 }
 
 export const createManualDeviation = (data: Partial<DeviationRecord>) => {

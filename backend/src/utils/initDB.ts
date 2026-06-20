@@ -47,12 +47,21 @@ CREATE TABLE IF NOT EXISTS water_quality_records (
 CREATE TABLE IF NOT EXISTS deviation_records (
   id SERIAL PRIMARY KEY,
   dosage_record_id INTEGER REFERENCES dosage_records(id),
-  type VARCHAR(20) NOT NULL CHECK (type IN ('low_chlorine', 'manual')),
+  type VARCHAR(20) NOT NULL CHECK (type IN ('low_chlorine', 'high_turbidity', 'manual')),
+  deviation_metric VARCHAR(20) NOT NULL DEFAULT 'residual_chlorine' 
+    CHECK (deviation_metric IN ('residual_chlorine', 'turbidity', 'manual')),
   description TEXT NOT NULL,
   status VARCHAR(20) NOT NULL DEFAULT 'pending' 
     CHECK (status IN ('pending', 'analyst_submitted', 'confirmed', 'closed')),
   actual_dosage DECIMAL(10,2) NOT NULL,
   suggested_dosage DECIMAL(10,2),
+  actual_value DECIMAL(10,3),
+  threshold_value DECIMAL(10,3),
+  consecutive_hours INTEGER DEFAULT 1,
+  affect_start_time TIMESTAMP,
+  affect_end_time TIMESTAMP,
+  parent_deviation_id INTEGER REFERENCES deviation_records(id),
+  is_recurrence BOOLEAN DEFAULT FALSE,
   analyst_opinion TEXT,
   supervisor_opinion TEXT,
   analyst_id INTEGER REFERENCES users(id),
@@ -93,6 +102,9 @@ CREATE INDEX IF NOT EXISTS idx_dosage_record_time ON dosage_records(record_time)
 CREATE INDEX IF NOT EXISTS idx_dosage_hour ON dosage_records(hour);
 CREATE INDEX IF NOT EXISTS idx_deviation_status ON deviation_records(status);
 CREATE INDEX IF NOT EXISTS idx_deviation_dosage_id ON deviation_records(dosage_record_id);
+CREATE INDEX IF NOT EXISTS idx_deviation_metric ON deviation_records(deviation_metric);
+CREATE INDEX IF NOT EXISTS idx_deviation_parent ON deviation_records(parent_deviation_id);
+CREATE INDEX IF NOT EXISTS idx_deviation_affect_start ON deviation_records(affect_start_time);
 CREATE INDEX IF NOT EXISTS idx_water_quality_dosage_id ON water_quality_records(dosage_record_id);
 CREATE INDEX IF NOT EXISTS idx_process_adjustment_time ON process_adjustments(effective_time);
 `
@@ -116,7 +128,10 @@ const insertDefaultData = async () => {
     ('disinfectant_standard', '2.0', '消毒剂标准投加量(mg/L)'),
     ('turbidity_max', '1.0', '浊度上限(NTU)'),
     ('ph_min', '6.5', 'pH下限'),
-    ('ph_max', '8.5', 'pH上限')
+    ('ph_max', '8.5', 'pH上限'),
+    ('consecutive_deviation_hours', '3', '连续偏离检测小时数'),
+    ('recurrence_lookback_days', '7', '异常复发回溯天数'),
+    ('adjustment_compare_hours', '24', '工艺调整前后对比小时数')
     ON CONFLICT (config_key) DO NOTHING;
   `
 

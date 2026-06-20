@@ -2,6 +2,7 @@ import { Response } from 'express'
 import pool from '../utils/db'
 import { AuthRequest } from '../middleware/auth'
 import { successResponse, errorResponse } from '../utils/response'
+import { getAdjustmentCompareHours } from '../utils/config'
 
 export const getProcessAdjustments = async (req: AuthRequest, res: Response) => {
   const { page = 1, pageSize = 20 } = req.query
@@ -107,4 +108,106 @@ export const getStatistics = async (req: AuthRequest, res: Response) => {
     dosage: statsResult.rows[0],
     deviation: deviationResult.rows[0]
   })
+}
+
+export const getAdjustmentCompare = async (req: AuthRequest, res: Response) => {
+  const { adjustment_id } = req.params
+
+  const adjustment = await pool.query(
+    'SELECT * FROM process_adjustments WHERE id = $1',
+    [adjustment_id]
+  )
+
+  if (adjustment.rows.length === 0) {
+    return errorResponse(res, '工艺调整记录不存在')
+  }
+
+  const effectiveTime = adjustment.rows[0].effective_time
+  const compareHours = await getAdjustmentCompareHours()
+
+  const beforeQuery = `
+    SELECT dr.id, dr.record_time, dr.hour, dr.flocculant_dosage, dr.disinfectant_dosage,
+           dr.online_residual_chlorine, wqr.turbidity, wqr.residual_chlorine as lab_residual_chlorine
+    FROM dosage_records dr
+    LEFT JOIN water_quality_records wqr ON wqr.dosage_record_id = dr.id
+    WHERE dr.record_time + (dr.hour || ' hours')::INTERVAL < $1
+      AND dr.record_time + (dr.hour || ' hours')::INTERVAL >= $1 - ($2 || ' hours')::INTERVAL
+    ORDER BY dr.record_time ASC, dr.hour ASC
+  `
+
+  const afterQuery = `
+    SELECT dr.id, dr.record_time, dr.hour, dr.flocculant_dosage, dr.disinfectant_dosage,
+           dr.online_residual_chlorine, wqr.turbidity, wqr.residual_chlorine as lab_residual_chlorine
+    FROM dosage_records dr
+    LEFT JOIN water_quality_records wqr ON wqr.dosage_record_id = dr.id
+    WHERE dr.record_time + (dr.hour || ' hours')::INTERVAL >= $1
+      AND dr.record_time + (dr.hour || ' hours')::INTERVAL < $1 + ($2 || ' hours')::INTERVAL
+    ORDER BY dr.record_time ASC, dr.hour ASC
+  `
+
+  const [beforeResult, afterResult] = await Promise.all([
+    pool.query(beforeQuery, [effectiveTime, compareHours]),
+    pool.query(afterQuery, [effectiveTime, compareHours])
+  ])
+
+  const beforeData = beforeResult.rows.map((row: any) => ({
+  ...row,
+  time_label: `${row.record_time} ${row.hour.toString().padStart(2, '0')}:00`
+}))
+  const afterData = afterResult.rows.map((row: any) => ({
+  ...row,
+  time_label: `${row.record_time} ${row.hour.toString().padStart(2, '0')}:00`
+}))
+
+  const beforeAvg = calculateAverages(beforeResult.rows)
+  const afterAvg = calculateAverages(afterResult.rows)
+
+  successResponse(res, {
+    adjustment: adjustment.rows[0],
+    compare_hours: compareHours,
+    before: beforeData,
+    after: afterData,
+    before_average: beforeAvg,
+    after_average: afterAvg,
+    comparison: {
+      flocculant_change: afterAvg.flocculant - beforeAvg.flocculant,
+      disinfectant_change: afterAvg.disinfectant - beforeAvg.disinfectant,
+      residual_chlorine_change: afterAvg.online_residual_chlorine - beforeAvg.online_residual_chlorine,
+      turbidity_change: afterAvg.turbidity - beforeAvg.turbidity
+    }
+  })
+}
+
+const calculateAverages = (rows: any[]) => {
+  if (rows.length === 0) {
+    return {
+      flocculant: 0,
+      disinfectant: 0,
+      online_residual_chlorine: 0,
+      turbidity: 0
+    }
+  }
+
+  let flocculantSum = 0
+  let disinfectantSum = 0
+  let chlorineSum = 0
+  let turbiditySum = 0
+  let turbidityCount = 0
+
+  for (const row of rows) {
+    flocculantSum += parseFloat(row.flocculant_dosage || 0)
+    disinfectantSum += parseFloat(row.disinfectant_dosage || 0)
+    chlorineSum += parseFloat(row.online_residual_chlorine || 0)
+    if (row.turbidity !== null && row.turbidity !== undefined) {
+      turbiditySum += parseFloat(row.turbidity)
+      turbidityCount++
+    }
+  }
+
+  return {
+    flocculant: flocculantSum / rows.length,
+    disinfectant: disinfectantSum / rows.length,
+    online_residual_chlorine: chlorineSum / rows.length,
+    turbidity: turbidityCount > 0 ? turbiditySum / turbidityCount : 0
+  }
 }

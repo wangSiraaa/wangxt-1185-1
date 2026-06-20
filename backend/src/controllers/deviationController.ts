@@ -2,28 +2,39 @@ import { Response } from 'express'
 import pool from '../utils/db'
 import { AuthRequest } from '../middleware/auth'
 import { successResponse, errorResponse } from '../utils/response'
+import { getDeviationById, getRecurrenceDeviations } from '../utils/deviationDetector'
 
 export const getDeviationRecords = async (req: AuthRequest, res: Response) => {
-  const { status, page = 1, pageSize = 20 } = req.query
+  const { status, page = 1, pageSize = 20, type } = req.query
   const offset = (Number(page) - 1) * Number(pageSize)
 
   let query = `
     SELECT d.*, dr.record_time, dr.hour, dr.disinfectant_dosage,
-           dr.online_residual_chlorine, u1.name as analyst_name, u2.name as supervisor_name,
-           EXISTS (SELECT 1 FROM water_quality_records w WHERE w.dosage_record_id = d.dosage_record_id) as has_quality_record
+           dr.flocculant_dosage, dr.online_residual_chlorine,
+           u1.name as analyst_name, u2.name as supervisor_name,
+           EXISTS (SELECT 1 FROM water_quality_records w WHERE w.dosage_record_id = d.dosage_record_id) as has_quality_record,
+           pd.id as parent_deviation_id_ref, pd.type as parent_type, pd.status as parent_status
     FROM deviation_records d
     LEFT JOIN dosage_records dr ON d.dosage_record_id = dr.id
     LEFT JOIN users u1 ON d.analyst_id = u1.id
     LEFT JOIN users u2 ON d.supervisor_id = u2.id
+    LEFT JOIN deviation_records pd ON d.parent_deviation_id = pd.id
   `
-  let countQuery = 'SELECT COUNT(*) FROM deviation_records'
+  let countQuery = 'SELECT COUNT(*) FROM deviation_records d'
   let params: any[] = []
-  let whereClause = ''
+  let whereClauses: string[] = []
 
   if (status) {
-    whereClause = ' WHERE d.status = $1'
-    params = [status]
+    whereClauses.push('d.status = $' + (params.length + 1))
+    params.push(status)
   }
+
+  if (type) {
+    whereClauses.push('d.type = $' + (params.length + 1))
+    params.push(type)
+  }
+
+  const whereClause = whereClauses.length > 0 ? ' WHERE ' + whereClauses.join(' AND ') : ''
 
   query += whereClause + ' ORDER BY d.generated_at DESC LIMIT $' + (params.length + 1) + ' OFFSET $' + (params.length + 2)
   countQuery += whereClause
@@ -152,7 +163,7 @@ export const closeDeviation = async (req: AuthRequest, res: Response) => {
 }
 
 export const createManualDeviation = async (req: AuthRequest, res: Response) => {
-  const { dosage_record_id, description, suggested_dosage } = req.body
+  const { dosage_record_id, description, suggested_dosage, deviation_metric = 'manual' } = req.body
   const userId = req.user?.id
 
   if (!dosage_record_id || !description) {
@@ -160,7 +171,7 @@ export const createManualDeviation = async (req: AuthRequest, res: Response) => 
   }
 
   const dosageRecord = await pool.query(
-    'SELECT id, disinfectant_dosage, is_locked FROM dosage_records WHERE id = $1',
+    'SELECT id, disinfectant_dosage, flocculant_dosage, is_locked FROM dosage_records WHERE id = $1',
     [dosage_record_id]
   )
 
@@ -172,13 +183,39 @@ export const createManualDeviation = async (req: AuthRequest, res: Response) => 
     return errorResponse(res, '该投加记录已锁定，无法创建偏差')
   }
 
+  const actualDosage = deviation_metric === 'turbidity'
+    ? dosageRecord.rows[0].flocculant_dosage
+    : dosageRecord.rows[0].disinfectant_dosage
+
   const result = await pool.query(
     `INSERT INTO deviation_records 
-     (dosage_record_id, type, description, actual_dosage, suggested_dosage, status, analyst_id)
-     VALUES ($1, 'manual', $2, $3, $4, 'analyst_submitted', $5)
+     (dosage_record_id, type, deviation_metric, description, actual_dosage, suggested_dosage, status, analyst_id)
+     VALUES ($1, 'manual', $2, $3, $4, $5, 'analyst_submitted', $6)
      RETURNING *`,
-    [dosage_record_id, description, dosageRecord.rows[0].disinfectant_dosage, suggested_dosage, userId]
+    [dosage_record_id, deviation_metric, description, actualDosage, suggested_dosage, userId]
   )
 
   successResponse(res, result.rows[0], '人工偏差创建成功')
+}
+
+export const getDeviationDetail = async (req: AuthRequest, res: Response) => {
+  const { id } = req.params
+
+  const deviation = await getDeviationById(id)
+  if (!deviation) {
+    return errorResponse(res, '偏差记录不存在')
+  }
+
+  let parentDeviation = null
+  if (deviation.parent_deviation_id) {
+    parentDeviation = await getDeviationById(deviation.parent_deviation_id)
+  }
+
+  const recurrenceDeviations = await getRecurrenceDeviations(id)
+
+  successResponse(res, {
+    ...deviation,
+    parent_deviation: parentDeviation,
+    recurrence_deviations: recurrenceDeviations
+  })
 }

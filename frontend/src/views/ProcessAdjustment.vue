@@ -39,6 +39,11 @@
             {{ formatDateTime(row.created_at) }}
           </template>
         </el-table-column>
+        <el-table-column label="操作" width="110" fixed="right">
+          <template #default="{ row }">
+            <el-button type="primary" link @click="handleViewCompare(row)">对比效果</el-button>
+          </template>
+        </el-table-column>
       </el-table>
 
       <el-pagination
@@ -99,25 +104,129 @@
         <el-button type="primary" :loading="submitting" @click="handleSubmit">保存</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="showCompareDialog" title="调整前后指标对比" width="900px">
+      <div v-if="compareData" class="compare-container">
+        <el-descriptions :column="3" border size="small">
+          <el-descriptions-item label="调整类型">{{ currentCompare?.adjustment_type }}</el-descriptions-item>
+          <el-descriptions-item label="调整前">{{ currentCompare?.before_value }}</el-descriptions-item>
+          <el-descriptions-item label="调整后">{{ currentCompare?.after_value }}</el-descriptions-item>
+        </el-descriptions>
+
+        <div class="compare-summary">
+          <div class="summary-item">
+            <span class="label">调整前平均余氯</span>
+            <span class="value before">{{ compareData.summary.before_avg_residual_chlorine?.toFixed(3) || '-' }} mg/L</span>
+          </div>
+          <div class="summary-item">
+            <span class="label">调整后平均余氯</span>
+            <span class="value after">{{ compareData.summary.after_avg_residual_chlorine?.toFixed(3) || '-' }} mg/L</span>
+          </div>
+          <div class="summary-item">
+            <span class="label">余氯变化</span>
+            <span :class="['value', 'change', compareData.summary.residual_chlorine_change && compareData.summary.residual_chlorine_change > 0 ? 'positive' : 'negative']">
+              {{ compareData.summary.residual_chlorine_change ? (compareData.summary.residual_chlorine_change > 0 ? '+' : '') + compareData.summary.residual_chlorine_change.toFixed(3) : '-' }}
+            </span>
+          </div>
+          <div class="summary-item">
+            <span class="label">调整前平均浊度</span>
+            <span class="value before">{{ compareData.summary.before_avg_turbidity?.toFixed(3) || '-' }} NTU</span>
+          </div>
+          <div class="summary-item">
+            <span class="label">调整后平均浊度</span>
+            <span class="value after">{{ compareData.summary.after_avg_turbidity?.toFixed(3) || '-' }} NTU</span>
+          </div>
+          <div class="summary-item">
+            <span class="label">浊度变化</span>
+            <span :class="['value', 'change', compareData.summary.turbidity_change && compareData.summary.turbidity_change < 0 ? 'positive' : 'negative']">
+              {{ compareData.summary.turbidity_change ? (compareData.summary.turbidity_change > 0 ? '+' : '') + compareData.summary.turbidity_change.toFixed(3) : '-' }}
+            </span>
+          </div>
+        </div>
+
+        <el-tabs v-model="activeTab">
+          <el-tab-pane label="余氯趋势" name="chlorine">
+            <el-table :data="allHourlyData" size="small" border stripe>
+              <el-table-column prop="hour" label="时间点" width="130" />
+              <el-table-column prop="residual_chlorine" label="余氯(mg/L)" width="140">
+                <template #default="{ row }">
+                  <span :class="{ 'before-data': row.period === 'before', 'after-data': row.period === 'after' }">
+                    {{ row.residual_chlorine ?? '-' }}
+                  </span>
+                </template>
+              </el-table-column>
+              <el-table-column label="时段" width="100">
+                <template #default="{ row }">
+                  <el-tag v-if="row.period === 'before'" size="small" type="info">调整前</el-tag>
+                  <el-tag v-else-if="row.period === 'after'" size="small" type="success">调整后</el-tag>
+                  <el-tag v-else size="small" type="warning">调整点</el-tag>
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-tab-pane>
+          <el-tab-pane label="浊度趋势" name="turbidity">
+            <el-table :data="allHourlyData" size="small" border stripe>
+              <el-table-column prop="hour" label="时间点" width="130" />
+              <el-table-column prop="turbidity" label="浊度(NTU)" width="140">
+                <template #default="{ row }">
+                  <span :class="{ 'before-data': row.period === 'before', 'after-data': row.period === 'after' }">
+                    {{ row.turbidity ?? '-' }}
+                  </span>
+                </template>
+              </el-table-column>
+              <el-table-column label="时段" width="100">
+                <template #default="{ row }">
+                  <el-tag v-if="row.period === 'before'" size="small" type="info">调整前</el-tag>
+                  <el-tag v-else-if="row.period === 'after'" size="small" type="success">调整后</el-tag>
+                  <el-tag v-else size="small" type="warning">调整点</el-tag>
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-tab-pane>
+        </el-tabs>
+      </div>
+      <div v-else-if="compareLoading" style="text-align: center; padding: 40px">
+        <el-icon class="is-loading"><Loading /></el-icon>
+        <span style="margin-left: 8px; color: #909399">加载中...</span>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import { Plus, ArrowRight } from '@element-plus/icons-vue'
-import { getProcessAdjustments, createProcessAdjustment } from '@/api/process'
+import { Plus, ArrowRight, Loading } from '@element-plus/icons-vue'
+import { getProcessAdjustments, createProcessAdjustment, getAdjustmentCompare } from '@/api/process'
 import { getDeviationRecords } from '@/api/deviation'
 import { typeMap } from '@/types'
 import dayjs from 'dayjs'
-import type { ProcessAdjustment, DeviationRecord } from '@/types'
+import type { ProcessAdjustment, DeviationRecord, AdjustmentCompareResponse } from '@/types'
 
 const loading = ref(false)
 const submitting = ref(false)
+const compareLoading = ref(false)
 const showAddDialog = ref(false)
+const showCompareDialog = ref(false)
+const activeTab = ref('chlorine')
 const tableData = ref<ProcessAdjustment[]>([])
 const confirmedDeviations = ref<DeviationRecord[]>([])
+const currentCompare = ref<ProcessAdjustment | null>(null)
+const compareData = ref<AdjustmentCompareResponse | null>(null)
 const formRef = ref<FormInstance>()
+
+const allHourlyData = computed(() => {
+  if (!compareData.value) return []
+  const before = (compareData.value.before_hours || []).map(item => ({
+    ...item,
+    period: 'before' as const
+  }))
+  const after = (compareData.value.after_hours || []).map(item => ({
+    ...item,
+    period: 'after' as const
+  }))
+  return [...before, ...after]
+})
 
 const pagination = reactive({
   page: 1,
@@ -194,6 +303,21 @@ const handleSubmit = async () => {
   })
 }
 
+const handleViewCompare = async (row: ProcessAdjustment) => {
+  currentCompare.value = row
+  compareData.value = null
+  showCompareDialog.value = true
+  compareLoading.value = true
+  try {
+    const res = await getAdjustmentCompare(row.id)
+    compareData.value = res.data?.data || null
+  } catch (error) {
+    ElMessage.error('加载对比数据失败')
+  } finally {
+    compareLoading.value = false
+  }
+}
+
 onMounted(() => {
   loadData()
   loadConfirmedDeviations()
@@ -210,5 +334,60 @@ onMounted(() => {
 .pagination {
   margin-top: 20px;
   justify-content: flex-end;
+}
+
+.compare-container {
+  padding: 10px 0;
+}
+
+.compare-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin: 20px 0;
+}
+
+.summary-item {
+  background: #f5f7fa;
+  border-radius: 8px;
+  padding: 16px;
+  text-align: center;
+}
+
+.summary-item .label {
+  display: block;
+  font-size: 13px;
+  color: #909399;
+  margin-bottom: 8px;
+}
+
+.summary-item .value {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.summary-item .value.before {
+  color: #909399;
+}
+
+.summary-item .value.after {
+  color: #409eff;
+}
+
+.summary-item .value.change.positive {
+  color: #67c23a;
+}
+
+.summary-item .value.change.negative {
+  color: #f56c6c;
+}
+
+.before-data {
+  color: #909399;
+}
+
+.after-data {
+  color: #67c23a;
+  font-weight: 500;
 }
 </style>
