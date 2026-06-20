@@ -2,7 +2,7 @@
   <el-container class="layout-container">
     <el-aside width="220px" class="aside">
       <div class="logo">
-        <el-icon :size="28" color="#409EFF"><Water /></el-icon>
+        <el-icon :size="28" color="#409EFF"><HotWater /></el-icon>
         <span>药剂投加复核系统</span>
       </div>
       <el-menu :default-active="activeMenu" router background-color="#001529" text-color="#b6c2cd" active-text-color="#ffffff">
@@ -51,7 +51,7 @@
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Water, Location, Avatar, ArrowDown, DataLine, CirclePlus, Watermelon, Warning, Operation, Setting } from '@element-plus/icons-vue'
+import { HotWater, Location, Avatar, ArrowDown, DataLine, CirclePlus, Watermelon, Warning, Operation, Setting } from '@element-plus/icons-vue'
 import { useUserStore } from '@/store/user'
 import PasswordDialog from '@/components/PasswordDialog.vue'
 

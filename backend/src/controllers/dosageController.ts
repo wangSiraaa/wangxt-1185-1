@@ -26,7 +26,7 @@ export const getDosageRecords = async (req: AuthRequest, res: Response) => {
     params = [date]
   }
 
-  query += whereClause + ' ORDER BY record_time DESC, hour DESC LIMIT $' + (params.length + 1) + ' OFFSET $' + (params.length + 2)
+  query += whereClause.replace('WHERE record_time', 'WHERE dr.record_time') + ' ORDER BY dr.record_time DESC, dr.hour DESC LIMIT $' + (params.length + 1) + ' OFFSET $' + (params.length + 2)
   countQuery += whereClause
 
   const [result, countResult] = await Promise.all([

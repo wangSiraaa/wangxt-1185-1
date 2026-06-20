@@ -70,10 +70,8 @@ export const getStatistics = async (req: AuthRequest, res: Response) => {
   const { start_date, end_date } = req.query
 
   let params: any[] = []
-  let whereClause = ''
 
   if (start_date && end_date) {
-    whereClause = 'WHERE record_time BETWEEN $1 AND $2'
     params = [start_date, end_date]
   }
 
@@ -85,7 +83,7 @@ export const getStatistics = async (req: AuthRequest, res: Response) => {
       AVG(online_residual_chlorine) as avg_chlorine,
       SUM(CASE WHEN is_locked THEN 1 ELSE 0 END) as locked_count
     FROM dosage_records
-    ${whereClause}
+    ${params.length > 0 ? 'WHERE record_time BETWEEN $1 AND $2' : ''}
   `
 
   const deviationStatsQuery = `
@@ -97,7 +95,7 @@ export const getStatistics = async (req: AuthRequest, res: Response) => {
       SUM(CASE WHEN status = 'closed' THEN 1 ELSE 0 END) as closed_count
     FROM deviation_records d
     LEFT JOIN dosage_records dr ON d.dosage_record_id = dr.id
-    ${whereClause}
+    ${params.length > 0 ? 'WHERE dr.record_time BETWEEN $1 AND $2' : ''}
   `
 
   const [statsResult, deviationResult] = await Promise.all([

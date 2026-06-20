@@ -3,7 +3,7 @@
     <el-card class="login-card">
       <template #header>
         <div class="login-header">
-          <el-icon :size="48" color="#409EFF"><Water /></el-icon>
+          <el-icon :size="48" color="#409EFF"><HotWater /></el-icon>
           <h1>自来水厂药剂投加</h1>
           <h2>偏差复核系统</h2>
         </div>
@@ -33,7 +33,7 @@
 import { reactive, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import { User, Lock, Water } from '@element-plus/icons-vue'
+import { User, Lock, HotWater } from '@element-plus/icons-vue'
 import { useUserStore } from '@/store/user'
 
 const router = useRouter()
